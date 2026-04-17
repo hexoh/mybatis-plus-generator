@@ -7,7 +7,7 @@ if [ $# -lt 2 ]; then
     exit 1
 fi
 
-SOURCE_JAVA_DIR="$1"  # 源Java目录，如: ./src/main/java/com/rhzt
+SOURCE_JAVA_DIR="$1"  # 源Java目录，如: ./src/main/java/com/rhzt/modules/meet
 TARGET_PROJECT="$2"   # 目标项目根目录，如: ../your-project
 
 echo "源Java目录: $SOURCE_JAVA_DIR"
@@ -19,11 +19,21 @@ new_count=0
 skip_count=0
 
 # 获取父包名（如com.rhzt）
-PARENT_PACKAGE=$(basename "$(dirname "$SOURCE_JAVA_DIR")").$(basename "$SOURCE_JAVA_DIR")
+PARENT_PACKAGE=$(echo "$SOURCE_JAVA_DIR" | sed -E 's|.*/java/||')
 echo "检测到父包: $PARENT_PACKAGE"
 
+# 自动识别 modules 下的模块名
+# 默认：取最后一层目录
+MODULE_NAME=$(basename "$SOURCE_JAVA_DIR")
+# 如果路径中包含 modules/，则优先取 modules 后的模块名
+if [[ "$SOURCE_JAVA_DIR" == *"/modules/"* ]]; then
+    MODULE_NAME=$(echo "$SOURCE_JAVA_DIR" | sed -E 's|.*/modules/([^/]+).*|\1|')
+fi
+
+echo "检测到模块名: $MODULE_NAME"
+
 # 1. 先处理Java文件
-find "$SOURCE_JAVA_DIR" -type f -name "*.java" | while read -r source_file; do
+while IFS= read -r source_file; do
     # 获取相对于SOURCE_JAVA_DIR的路径
     relative_path="${source_file#$SOURCE_JAVA_DIR/}"
 
@@ -41,65 +51,43 @@ find "$SOURCE_JAVA_DIR" -type f -name "*.java" | while read -r source_file; do
         echo "⏭️  已存在Java: $relative_path"
         skip_count=$((skip_count + 1))
     fi
-done
+done < <(find "$SOURCE_JAVA_DIR" -type f -name "*.java")
 
 # 2. 处理XML文件 - 通用方法
-# 查找所有XML文件
-find "$SOURCE_JAVA_DIR" -type f -name "*.xml" | while read -r source_file; do
+while IFS= read -r source_file; do
     # 获取相对于SOURCE_JAVA_DIR的完整路径
     full_relative_path="${source_file#$SOURCE_JAVA_DIR/}"
+    filename=$(basename "$source_file")
 
-    # 分析XML文件的路径结构
-    if [[ "$full_relative_path" == */xml/* ]]; then
-        # XML文件在xml目录下
-        # 提取xml/之后的部分
-        xml_relative_path="${full_relative_path#*/xml/}"
+    # 默认 mapper 目录
+    base_mapper_dir="$TARGET_PROJECT/src/main/resources/mapper"
+    module_mapper_dir="$base_mapper_dir/$MODULE_NAME"
 
-        if [[ "$xml_relative_path" == */* ]]; then
-            # 有子目录，如meet/SomeMapper.xml
-            sub_dir=$(dirname "$xml_relative_path")
-            filename=$(basename "$xml_relative_path")
-            target_file="$TARGET_PROJECT/src/main/resources/mapper/$sub_dir/$filename"
-        else
-            # 没有子目录，直接放在mapper下
-            filename="$xml_relative_path"
-            target_file="$TARGET_PROJECT/src/main/resources/mapper/$filename"
-        fi
-    elif [[ "$full_relative_path" == */mapper/* ]]; then
-        # XML文件在mapper目录下
-        # 提取mapper/之后的部分
-        mapper_relative_path="${full_relative_path#*/mapper/}"
-
-        if [[ "$mapper_relative_path" == */* ]]; then
-            # 有子目录
-            sub_dir=$(dirname "$mapper_relative_path")
-            filename=$(basename "$mapper_relative_path")
-            target_file="$TARGET_PROJECT/src/main/resources/mapper/$sub_dir/$filename"
-        else
-            # 没有子目录
-            filename="$mapper_relative_path"
-            target_file="$TARGET_PROJECT/src/main/resources/mapper/$filename"
-        fi
+    # ✅ 判断目标项目是否已存在模块目录
+    if [ -d "$module_mapper_dir" ]; then
+        target_dir="$module_mapper_dir"
+        target_display="mapper/$MODULE_NAME/$filename"
     else
-        # XML在其他位置，直接复制到resources对应位置
-        target_file="$TARGET_PROJECT/src/main/resources/$full_relative_path"
+        target_dir="$base_mapper_dir"
+        target_display="mapper/$filename"
     fi
+
+    target_file="$target_dir/$filename"
 
     # 如果目标文件不存在，则复制
     if [ ! -f "$target_file" ]; then
-        target_dir=$(dirname "$target_file")
         mkdir -p "$target_dir"
         cp "$source_file" "$target_file"
-        echo "✅ 新增XML: $full_relative_path -> ${target_file#$TARGET_PROJECT/}"
+        echo "✅ 新增XML: $full_relative_path -> $target_display"
         new_count=$((new_count + 1))
     else
-        echo "⏭️  已存在XML: $full_relative_path -> ${target_file#$TARGET_PROJECT/}"
+        echo "⏭️  已存在XML: $full_relative_path -> $target_display"
         skip_count=$((skip_count + 1))
     fi
-done
+done < <(find "$SOURCE_JAVA_DIR" -type f -name "*.xml")
 
 # 3. 处理其他类型的文件（可选）
-find "$SOURCE_JAVA_DIR" -type f -name "*.yml" -o -name "*.yaml" -o -name "*.properties" | while read -r source_file; do
+while IFS= read -r source_file; do
     full_relative_path="${source_file#$SOURCE_JAVA_DIR/}"
     target_file="$TARGET_PROJECT/src/main/resources/$full_relative_path"
 
@@ -113,7 +101,9 @@ find "$SOURCE_JAVA_DIR" -type f -name "*.yml" -o -name "*.yaml" -o -name "*.prop
         echo "⏭️  已存在配置文件: $full_relative_path -> ${target_file#$TARGET_PROJECT/}"
         skip_count=$((skip_count + 1))
     fi
-done
+done < <(find "$SOURCE_JAVA_DIR" -type f \( -name "*.yml" -o -name "*.yaml" -o -name "*.properties" \))
 
 echo ""
 echo "同步完成！"
+echo "新增文件: $new_count 个"
+echo "跳过文件: $skip_count 个"

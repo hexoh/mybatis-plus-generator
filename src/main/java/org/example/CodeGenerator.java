@@ -13,16 +13,16 @@ public class CodeGenerator {
                         .disableOpenDir()
                 )
                 .packageConfig(builder -> builder
-                        .parent("com.rhzt")
-                        .controller("controller.meet")
-                        .entity("model.entity.meet")
-                        .mapper("mapper.meet")
-                        .service("service.meet")
+                        .parent("com.rhzt.modules.meet")
+                        .controller("controller")
+                        .entity("model.entity")
+                        .mapper("mapper")
+                        .service("service")
                         .xml("mapper.xml")
                 )
                 .strategyConfig(builder -> builder
                         // 表名
-                        .addInclude("meet_message")
+                        .addInclude("meet_attendance_log")
                         .entityBuilder()
                         .enableLombok()
                         .enableFileOverride() // 实体类覆盖
